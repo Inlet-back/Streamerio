@@ -55,6 +55,11 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 }
 
 func startAggregation() {
+    var (
+        supportSum  int
+        obstructSum int
+        count       int
+    )
     ticker := time.NewTicker(1 * time.Second)
     for range ticker.C {
         mu.Lock()
@@ -64,14 +69,19 @@ func startAggregation() {
         teamCount["obstruct"] = 0
         mu.Unlock()
 
-        total := support + obstruct
-        var ratio float64
-        if total > 0 {
-            ratio = float64(support) / float64(total)
-        }
+        supportSum += support
+        obstructSum += obstruct
+        count++
 
-        log.Printf("Support Ratio: %.2f", ratio)
-        SendToUnity(ratio)
+        log.Printf("Support: %d, Obstruct: %d (collected)", support, obstruct)
+
+        if count >= 5 {
+            log.Printf("Send to Unity: Support: %d, Obstruct: %d", supportSum, obstructSum)
+            SendToUnity(supportSum, obstructSum)
+            supportSum = 0
+            obstructSum = 0
+            count = 0
+        }
     }
 }
 
