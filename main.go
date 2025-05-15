@@ -87,6 +87,10 @@ func startAggregation() {
 
 func main() {
     http.HandleFunc("/ws", handleWebSocket)
+    // 追加: client.htmlをルートで返す
+    http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+        http.ServeFile(w, r, "client.html")
+    })
     go startAggregation()
 
     log.Println("Server started at :8080")
