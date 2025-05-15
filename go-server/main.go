@@ -104,17 +104,16 @@ func startAggregation() {
             room.Support = 0
             room.Obstruct = 0
 
-            // SupportまたはObstructが10以上になったらUnityへ送信し、リセット
-            if s.Support >= 10{
-                log.Printf("Send to Unity [%s]: Support: %d, Obstruct: %d", streamID, s.Support, s.Obstruct)
-                SendToUnityPerStream(streamID, s.Support, s.Obstruct)
-                s.Support = 0
-                
+            // SupportまたはObstructが10以上になったら、その分だけ1ずつUnityへ送信
+            for s.Support >= 10 {
+                log.Printf("Send to Unity [%s]: Support: 1, Obstruct: %d", streamID, s.Obstruct)
+                SendToUnityPerStream(streamID, 1, 0)
+                s.Support -= 10
             }
-            if s.Obstruct >= 10{
-                log.Printf("Send to Unity [%s]: Support: %d, Obstruct: %d", streamID, s.Support, s.Obstruct)
-                SendToUnityPerStream(streamID, s.Support, s.Obstruct)
-                s.Obstruct = 0
+            for s.Obstruct >= 10 {
+                log.Printf("Send to Unity [%s]: Support: %d, Obstruct: 1", streamID, s.Support)
+                SendToUnityPerStream(streamID, 0, 1)
+                s.Obstruct -= 10
             }
         }
         mu.Unlock()
