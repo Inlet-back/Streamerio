@@ -14,13 +14,14 @@ var upgrader = websocket.Upgrader{
 }
 
 type Message struct {
-    Team string `json:"team"` // "support" or "obstruct"
+    Support  int `json:"support"`
+    Obstruct int `json:"obstruct"`
 }
 
 var (
-    clients     = make(map[*websocket.Conn]string)
-    teamCount   = map[string]int{"support": 0, "obstruct": 0}
-    mu          sync.Mutex
+    clients   = make(map[*websocket.Conn]bool)
+    teamCount = map[string]int{"support": 0, "obstruct": 0}
+    mu        sync.Mutex
 )
 
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -32,7 +33,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
     defer conn.Close()
 
     mu.Lock()
-    clients[conn] = ""
+    clients[conn] = true
     mu.Unlock()
 
     for {
@@ -43,8 +44,8 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
         }
 
         mu.Lock()
-        clients[conn] = msg.Team
-        teamCount[msg.Team]++
+        teamCount["support"] += msg.Support
+        teamCount["obstruct"] += msg.Obstruct
         mu.Unlock()
     }
 
