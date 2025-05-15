@@ -1,3 +1,4 @@
+// / interactive-game/go-server/main.go
 package main
 
 import (
@@ -25,16 +26,9 @@ type TeamCount struct {
 	Clients  map[*websocket.Conn]bool
 }
 
-type StreamStat struct {
-	Support  int
-	Obstruct int
-	Count    int
-}
-
 var (
-	rooms       = make(map[string]*TeamCount)
-	streamStats = make(map[string]*StreamStat)
-	mu          sync.Mutex
+	rooms = make(map[string]*TeamCount)
+	mu    sync.Mutex
 )
 
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -81,41 +75,54 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 }
 
 func startAggregation() {
-	ticker := time.NewTicker(1 * time.Second)
+    type Aggregation struct {
+        Support  int
+        Obstruct int
+    }
 
-	for range ticker.C {
-		mu.Lock()
-		for streamID, room := range rooms {
-			stat, exists := streamStats[streamID]
-			if !exists {
-				stat = &StreamStat{}
-				streamStats[streamID] = stat
-			}
+    ticker := time.NewTicker(1 * time.Second)
+    defer ticker.Stop()
 
-			stat.Support += room.Support
-			stat.Obstruct += room.Obstruct
-			stat.Count++
+    streamStats := make(map[string]*Aggregation)
 
-			log.Printf("[%s] Support: %d, Obstruct: %d (collected)", streamID, room.Support, room.Obstruct)
+    for range ticker.C {
+        mu.Lock()
+        for streamID, room := range rooms {
+            // 初期化されていなければ作る
+            if _, ok := streamStats[streamID]; !ok {
+                streamStats[streamID] = &Aggregation{}
+            }
+            s := streamStats[streamID]
 
-			room.Support = 0
-			room.Obstruct = 0
+            // 現在の集計値を加算
+            s.Support += room.Support
+            s.Obstruct += room.Obstruct
 
-			if stat.Count >= 5 {
-				log.Printf("Send to Unity [%s]: Support: %d, Obstruct: %d", streamID, stat.Support, stat.Obstruct)
-				SendToUnityPerStream(streamID, stat.Support, stat.Obstruct)
-				stat.Support = 0
-				stat.Obstruct = 0
-				stat.Count = 0
-			}
-		}
-		mu.Unlock()
-	}
+            log.Printf("[%s] Support: %d, Obstruct: %d (collected)", streamID, room.Support, room.Obstruct)
+
+            // 配信者の現在の集計値をリセット
+            room.Support = 0
+            room.Obstruct = 0
+
+            // SupportまたはObstructが10以上になったらUnityへ送信し、リセット
+            if s.Support >= 10{
+                log.Printf("Send to Unity [%s]: Support: %d, Obstruct: %d", streamID, s.Support, s.Obstruct)
+                SendToUnityPerStream(streamID, s.Support, s.Obstruct)
+                s.Support = 0
+                
+            }
+            if s.Obstruct >= 10{
+                log.Printf("Send to Unity [%s]: Support: %d, Obstruct: %d", streamID, s.Support, s.Obstruct)
+                SendToUnityPerStream(streamID, s.Support, s.Obstruct)
+                s.Obstruct = 0
+            }
+        }
+        mu.Unlock()
+    }
 }
-
 func SendToUnityPerStream(streamID string, support int, obstruct int) {
 	log.Printf("[UnityMock] [%s] support=%d, obstruct=%d", streamID, support, obstruct)
-	// ここでUnity側のエンドポイントにHTTP POSTするなどに差し替え可能
+	// WebSocket送信やUnity連携部分はここで実装
 }
 
 func main() {
