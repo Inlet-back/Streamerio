@@ -1,40 +1,46 @@
-<!DOCTYPE html>
+!DOCTYPE html>
 <html>
 <body>
+  <input id="stream" placeholder="Enter Stream ID" />
+  <button onclick="start()">Connect</button>
+  <br /><br />
   <button onclick="countPress('support')">Support</button>
   <button onclick="countPress('obstruct')">Obstruct</button>
 
   <script>
-    const socket = new WebSocket("ws://localhost:8080/ws");
-
+    let socket;
     let counts = { support: 0, obstruct: 0 };
+    let streamID = "";
+
+    function start() {
+      streamID = document.getElementById("stream").value;
+      socket = new WebSocket("ws://" + location.host + "/ws?stream=" + streamID);
+
+      socket.onopen = () => {
+        console.log("WebSocket connected to stream:", streamID);
+      };
+      socket.onmessage = (event) => {
+        console.log("Received from server:", event.data);
+      };
+    }
 
     function countPress(team) {
       counts[team]++;
     }
 
-    // 1秒毎にまとめて送信
     setInterval(() => {
+      if (!socket || socket.readyState !== WebSocket.OPEN) return;
       if (counts.support === 0 && counts.obstruct === 0) return;
 
       const msg = {
         support: counts.support,
-        obstruct: counts.obstruct
+        obstruct: counts.obstruct,
+        stream: streamID
       };
       socket.send(JSON.stringify(msg));
-
-      // リセット
       counts.support = 0;
       counts.obstruct = 0;
     }, 1000);
-
-    socket.onopen = () => {
-      console.log("WebSocket connected");
-    };
-
-    socket.onmessage = (event) => {
-      console.log("Received from server:", event.data);
-    };
   </script>
 </body>
 </html>

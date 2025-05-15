@@ -10,89 +10,121 @@ import (
 )
 
 var upgrader = websocket.Upgrader{
-    CheckOrigin: func(r *http.Request) bool { return true },
+	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
 type Message struct {
-    Support  int `json:"support"`
-    Obstruct int `json:"obstruct"`
+	Support  int    `json:"support"`
+	Obstruct int    `json:"obstruct"`
+	StreamID string `json:"stream"`
+}
+
+type TeamCount struct {
+	Support  int
+	Obstruct int
+	Clients  map[*websocket.Conn]bool
+}
+
+type StreamStat struct {
+	Support  int
+	Obstruct int
+	Count    int
 }
 
 var (
-    clients   = make(map[*websocket.Conn]bool)
-    teamCount = map[string]int{"support": 0, "obstruct": 0}
-    mu        sync.Mutex
+	rooms       = make(map[string]*TeamCount)
+	streamStats = make(map[string]*StreamStat)
+	mu          sync.Mutex
 )
 
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
-    conn, err := upgrader.Upgrade(w, r, nil)
-    if err != nil {
-        log.Println("Upgrade error:", err)
-        return
-    }
-    defer conn.Close()
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Println("Upgrade error:", err)
+		return
+	}
+	defer conn.Close()
 
-    mu.Lock()
-    clients[conn] = true
-    mu.Unlock()
+	streamID := r.URL.Query().Get("stream")
+	if streamID == "" {
+		log.Println("Missing stream ID")
+		return
+	}
 
-    for {
-        var msg Message
-        if err := conn.ReadJSON(&msg); err != nil {
-            log.Println("Read error:", err)
-            break
-        }
+	mu.Lock()
+	if rooms[streamID] == nil {
+		rooms[streamID] = &TeamCount{
+			Clients: make(map[*websocket.Conn]bool),
+		}
+	}
+	rooms[streamID].Clients[conn] = true
+	mu.Unlock()
 
-        mu.Lock()
-        teamCount["support"] += msg.Support
-        teamCount["obstruct"] += msg.Obstruct
-        mu.Unlock()
-    }
+	for {
+		var msg Message
+		if err := conn.ReadJSON(&msg); err != nil {
+			log.Println("Read error:", err)
+			break
+		}
 
-    mu.Lock()
-    delete(clients, conn)
-    mu.Unlock()
+		mu.Lock()
+		if room, ok := rooms[msg.StreamID]; ok {
+			room.Support += msg.Support
+			room.Obstruct += msg.Obstruct
+		}
+		mu.Unlock()
+	}
+
+	mu.Lock()
+	delete(rooms[streamID].Clients, conn)
+	mu.Unlock()
 }
 
 func startAggregation() {
-    var (
-        supportSum  int
-        obstructSum int
-        count       int
-    )
-    ticker := time.NewTicker(1 * time.Second)
-    for range ticker.C {
-        mu.Lock()
-        support := teamCount["support"]
-        obstruct := teamCount["obstruct"]
-        teamCount["support"] = 0
-        teamCount["obstruct"] = 0
-        mu.Unlock()
+	ticker := time.NewTicker(1 * time.Second)
 
-        supportSum += support
-        obstructSum += obstruct
-        count++
+	for range ticker.C {
+		mu.Lock()
+		for streamID, room := range rooms {
+			stat, exists := streamStats[streamID]
+			if !exists {
+				stat = &StreamStat{}
+				streamStats[streamID] = stat
+			}
 
-        log.Printf("Support: %d, Obstruct: %d (collected)", support, obstruct)
+			stat.Support += room.Support
+			stat.Obstruct += room.Obstruct
+			stat.Count++
 
-        if count >= 5 {
-            log.Printf("Send to Unity: Support: %d, Obstruct: %d", supportSum, obstructSum)
-            SendToUnity(supportSum, obstructSum)
-            supportSum = 0
-            obstructSum = 0
-            count = 0
-        }
-    }
+			log.Printf("[%s] Support: %d, Obstruct: %d (collected)", streamID, room.Support, room.Obstruct)
+
+			room.Support = 0
+			room.Obstruct = 0
+
+			if stat.Count >= 5 {
+				log.Printf("Send to Unity [%s]: Support: %d, Obstruct: %d", streamID, stat.Support, stat.Obstruct)
+				SendToUnityPerStream(streamID, stat.Support, stat.Obstruct)
+				stat.Support = 0
+				stat.Obstruct = 0
+				stat.Count = 0
+			}
+		}
+		mu.Unlock()
+	}
+}
+
+func SendToUnityPerStream(streamID string, support int, obstruct int) {
+	log.Printf("[UnityMock] [%s] support=%d, obstruct=%d", streamID, support, obstruct)
+	// ここでUnity側のエンドポイントにHTTP POSTするなどに差し替え可能
 }
 
 func main() {
-    http.HandleFunc("/ws", handleWebSocket)
-    // 追加: client.htmlをルートで返す
-    http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-        http.ServeFile(w, r, "client.html")
-    })
-    go startAggregation()
+	http.HandleFunc("/ws", handleWebSocket)
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "../client/client.html")
+	})
+	go startAggregation()
 
-    log.Println("Server started at :8080")
-    log.Fatal(http.ListenAndServe(":8080", nil))
+	log.Println("Server started at :8080")
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }
