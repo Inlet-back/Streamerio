@@ -28,10 +28,12 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
         }
     }
     rooms[streamID].Clients[conn] = true
+    log.Printf("Add client to room [%s], total: %d", streamID, len(rooms[streamID].Clients))
     mu.Unlock()
 
+    // メッセージ受信ループ
     for {
-		var msg Message
+        var msg Message
         if err := conn.ReadJSON(&msg); err != nil {
             log.Println("Read error:", err)
             break
@@ -45,7 +47,9 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
         mu.Unlock()
     }
 
+    // 切断時にクライアントを削除
     mu.Lock()
     delete(rooms[streamID].Clients, conn)
+    log.Printf("Remove client from room [%s], total: %d", streamID, len(rooms[streamID].Clients))
     mu.Unlock()
 }

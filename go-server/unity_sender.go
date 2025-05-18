@@ -1,8 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"log"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 func startAggregation() {
@@ -48,6 +51,35 @@ func startAggregation() {
 }
 
 func SendToUnityPerStream(streamID string, support int, obstruct int) {
-    log.Printf("[UnityMock] [%s] support=%d, obstruct=%d", streamID, support, obstruct)
-    // WebSocket送信やUnity連携部分はここで実装
+    log.Printf("SendToUnityPerStream: streamID: %s, support: %d, obstruct: %d", streamID, support, obstruct)
+    // mu.Lock()
+    // defer mu.Unlock()
+    room, ok := rooms[streamID]
+    if !ok {
+        log.Printf("No room for streamID: %s", streamID)
+        return
+    }
+    log.Printf("Unity clients in room [%s]: %d", streamID, len(room.Clients)) // クライアント数を出力
+
+    // Unityクライアント全員に送信
+    msg := struct {
+        Support  int `json:"support"`
+        Obstruct int `json:"obstruct"`
+    }{
+        Support:  support,
+        Obstruct: obstruct,
+    }
+    data, err := json.Marshal(msg)
+    if err != nil {
+        log.Printf("JSON marshal error: %v", err)
+        return
+    }
+    for conn := range room.Clients {
+        log.Printf("Try send to Unity client in room [%s]", streamID)
+        if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+            log.Printf("Send error to Unity (streamID=%s): %v", streamID, err)
+            conn.Close()
+            delete(room.Clients, conn)
+        }
+    }
 }
